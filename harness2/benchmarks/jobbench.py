@@ -40,6 +40,7 @@ from ..core.spec import BenchPrompts, BenchSpec, resolve_channel_model
 from ..install import codex_config_error
 from ..substrate.base import Install, RunRequest
 from ..substrate.codex import CodexSubstrate
+from ..substrate.kimi import KimiSubstrate, make_home
 from ..substrate.opencode import OUTPUT_TOKEN_MAX, OpencodeSubstrate
 from .tasks import discover, select
 
@@ -48,6 +49,7 @@ _STORE_SEED_LOCK = threading.Lock()
 
 OC_RUNNER = Path(__file__).resolve().parent / "jb_opencode_runner.py"
 CX_RUNNER = _RUNNER_DIR / "run_benchmark_codex_cli_adapt.sh"
+KI_RUNNER = Path(__file__).resolve().parent / "jb_kimi_runner.py"
 OC_BASE_HARNESS = _RUNNER_DIR / "harness_baseline_oc"
 CX_BASE_HARNESS = _RUNNER_DIR / "codex_base_harness"
 
@@ -494,9 +496,9 @@ def render_opencode_tree(staged: Path, render_dir: Path, ctx: dict) -> None:
             shutil.copy(p, rd / ".opencode" / "plugin" / p.name)
 
 
-_INSTALL_MODE = {"oc": "workspace_agents_md", "cx": "codex_root"}
+_INSTALL_MODE = {"oc": "workspace_agents_md", "cx": "codex_root", "ki": "kimi_root"}
 
-_DEFAULT_TIMEOUT = {"oc": 2400, "cx": 3600}
+_DEFAULT_TIMEOUT = {"oc": 2400, "cx": 3600, "ki": 3600}
 
 
 def _channels() -> dict:
@@ -507,7 +509,7 @@ def _channels() -> dict:
 
 def make_spec(substrate: str) -> BenchSpec:
     if substrate not in _INSTALL_MODE:
-        raise ValueError(f"JobBench substrate must be 'oc' or 'cx', got {substrate!r}")
+        raise ValueError(f"JobBench substrate must be 'oc', 'cx' or 'ki', got {substrate!r}")
     return BenchSpec(
         name="jb",
         runs_root=config.RUNS / "jb",
@@ -516,7 +518,7 @@ def make_spec(substrate: str) -> BenchSpec:
         channels=_channels(),
         domain_word="profession",
         leak_globs=("RUBRICS.json", "eval_result/**", "expected/**", "reference/**"),
-        allow_subagents=(substrate == "oc"),
+        allow_subagents=(substrate in ("oc", "ki")),
         obs_trunc=config.JB_OBS_TRUNC,
         proposer_deliverables="contents",
     )
@@ -632,12 +634,12 @@ class JobBenchAdapter:
     ):
         self.split_file = split_file
         self.spec = make_spec(substrate)
-        launcher = self._launch_opencode if substrate == "oc" else self._launch_codex
-        self.substrate = (
-            OpencodeSubstrate(launcher=launcher)
-            if substrate == "oc"
-            else CodexSubstrate(launcher=launcher)
-        )
+        if substrate == "oc":
+            self.substrate = OpencodeSubstrate(launcher=self._launch_opencode)
+        elif substrate == "ki":
+            self.substrate = KimiSubstrate(launcher=self._launch_kimi)
+        else:
+            self.substrate = CodexSubstrate(launcher=self._launch_codex)
         self.timeout = int(timeout or _DEFAULT_TIMEOUT[substrate])
         self.store = Path(store_root) if store_root else config.RUNS / "jb" / "dataset"
 
@@ -829,6 +831,30 @@ class JobBenchAdapter:
         self._run_runner(CX_RUNNER, env, wall=t + 600, label=label)
         return [self._require_artifacts(task_id, label)]
 
+    def _launch_kimi(self, req: RunRequest, install: Install) -> list[Path]:
+        task_id, label, t = self._launch_common(req)
+        self.substrate.preflight()
+        root = Path(tempfile.mkdtemp(prefix=f"kimi_home_{label}_"))
+        try:
+            home = make_home(config.KIMI_BASE_HOME, install.extras.get("kimi_hooks", ""), root)
+            env = self.substrate.exec_env(os.environ, kimi_home=home)
+            env.update(
+                {
+                    "KIMI_BIN": config.KIMI_BIN,
+                    "KIMI_MODEL": config.SOLVER_MODEL_KI,
+                    "TASK_IDS": task_id,
+                    "LABEL": label,
+                    "HARNESS_RENDER_DIR": str(install.staging_dir),
+                    "TASKS_BASE_DIR": str(self.store),
+                    "TIMEOUT_PER_TASK": str(t),
+                    "MAX_RETRIES": "2",
+                }
+            )
+            self._run_runner(KI_RUNNER, env, wall=2 * t + 600, label=label)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+        return [self._require_artifacts(task_id, label)]
+
     def _run_runner(self, runner: Path, env: dict, *, wall: int, label: str) -> None:
         """Run the packaged launcher; timeouts leave the rollout incomplete."""
         if not runner.is_file():
@@ -948,6 +974,7 @@ class JobBenchAdapter:
         return str(self._extract(d)["flat"]) if d.is_dir() else ""
 
     def base_harness(self) -> Path:
+        # Kimi reads the same bare AGENTS.md as codex.
         base = OC_BASE_HARNESS if self.substrate.name == "oc" else CX_BASE_HARNESS
         if not HT.is_tree(self.substrate.surface(), base):
             raise FileNotFoundError(

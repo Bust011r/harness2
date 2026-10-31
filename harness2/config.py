@@ -162,6 +162,10 @@ CODEX_CONTAINER_URL = env("HARNESS2_CODEX_CONTAINER_URL", CODEX_BASE_URL)
 VERTEX_PROXY_KEY = env("HARNESS2_CODEX_API_KEY", "")
 CODEX_HOME_DIR = DEPENDENCIES / "codex" / "home"
 
+KIMI_BIN = env("HARNESS2_KIMI_BIN", str(Path.home() / ".kimi-code" / "bin" / "kimi"))
+KIMI_BASE_HOME = Path(env("HARNESS2_KIMI_HOME", Path.home() / ".kimi-code")).expanduser()
+SOLVER_MODEL_KI = env("HARNESS2_KIMI_MODEL", "")
+
 WB_SOLVER_MODEL = "harness2/solver"
 WB_WEB_JUDGE = "harness2/judge"
 WB_RENDER_PY = sys.executable

@@ -140,6 +140,33 @@ changing either. `harness2-check` reports stale configuration until then.
 Codex runs with its sandbox disabled. Review the
 [executor network restrictions](EXPERIMENTS.md#web-access) before evaluation.
 
+## Kimi executor
+
+The Kimi executor runs [Kimi Code CLI](https://moonshotai.github.io/kimi-code/)
+(`kimi -p`) on JobBench only. Install `kimi` and log in once (`kimi`, then
+`/login`), or configure an API-key provider in `~/.kimi-code/config.toml`. Then:
+
+```bash
+harness2-check --bench jb --substrate ki
+harness2 --bench jb --substrate ki --k 1 --mode parallel --max-tasks 1
+```
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `HARNESS2_KIMI_BIN` | `~/.kimi-code/bin/kimi` | The CLI |
+| `HARNESS2_KIMI_HOME` | `~/.kimi-code` | Data root holding the provider config and credentials |
+| `HARNESS2_KIMI_MODEL` | config `default_model` | Model alias passed as `-m` |
+
+Each rollout gets its own `KIMI_CODE_HOME` and `HOME`. Its `config.toml` is the
+base one with every `[[hooks]]` table replaced by the harness hooks, because Kimi
+reads hooks from the user-level config only. OAuth credentials are shared with the
+base data root by symlink, so token refreshes reach your own `kimi`. The separate
+`HOME` keeps `~/.agents/skills` and `~/.agents/AGENTS.md` out of rollouts.
+
+The improver and judge stay as configured above; Kimi is the executor only. Its
+trajectory carries no token counts or thinking, so the improver sees tool calls,
+observations and replies.
+
 ## Network access during setup
 
 Setup downloads dependencies from the following hosts:

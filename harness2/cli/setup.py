@@ -32,7 +32,7 @@ def main(argv=None):
         default=None,
         help="wb only: one subset to install; omitted installs office, web, and code",
     )
-    p.add_argument("--substrate", choices=("oc", "cx"), default="oc")
+    p.add_argument("--substrate", choices=("oc", "cx", "ki"), default="oc")
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args(argv)
     if args.subset and args.benchmark != "wb":
