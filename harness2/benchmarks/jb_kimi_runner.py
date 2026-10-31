@@ -27,13 +27,19 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
-from harness2.benchmarks.jb_opencode_runner import PROMPT, TRAJ_DIR_NAME
+from harness2.benchmarks.jb_opencode_runner import (
+    PROMPT,
+    TRAJ_DIR_NAME,
+    _hms,
+    _log,
+    _nonempty,
+    _stamp,
+)
+from harness2.substrate.kimi import KIMI_ROOT_ENTRIES
 
 TEMP_BASE = Path(tempfile.gettempdir()) / "harness2_kimi_ws"
-HARNESS_ENTRIES = ("AGENTS.md", ".agents", "scripts")
 
 
 @dataclass(frozen=True)
@@ -70,31 +76,13 @@ def _settings() -> Settings:
     )
 
 
-def _hms() -> str:
-    return datetime.now().strftime("%H:%M:%S")
-
-
-def _stamp() -> str:
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
-
-
-def _nonempty(path: Path) -> bool:
-    return path.is_dir() and any(path.iterdir())
-
-
-def _log(log_file: Path, line: str) -> None:
-    print(line, flush=True)
-    with log_file.open("a", encoding="utf-8") as fh:
-        fh.write(line + "\n")
-
-
 def _stage(task_dir: Path, render_dir: Path, workspace: Path) -> None:
     """Fresh task copy, empty output/, harness files at the root, and a git root:
     kimi resolves project skills and agents from the nearest directory holding .git."""
     shutil.rmtree(workspace, ignore_errors=True)
     (workspace / "output").mkdir(parents=True)
     shutil.copytree(task_dir, workspace / "task_folder")
-    for entry in HARNESS_ENTRIES:
+    for entry in KIMI_ROOT_ENTRIES:
         src = render_dir / entry
         if src.is_dir():
             shutil.copytree(src, workspace / entry)
@@ -104,6 +92,8 @@ def _stage(task_dir: Path, render_dir: Path, workspace: Path) -> None:
 
 
 def _command(cfg: Settings, prompt: str) -> list[str]:
+    """`kimi -p`: non-interactive and auto-approved (it refuses --yolo/--auto), one JSON
+    message per line on stdout; the workspace is the process cwd."""
     cmd = [cfg.kimi_bin, "-p", prompt, "--output-format", "stream-json"]
     return cmd + (["-m", cfg.model] if cfg.model else [])
 

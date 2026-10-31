@@ -23,7 +23,8 @@ from unittest.mock import patch
 
 from harness2 import config
 from harness2.benchmarks.jobbench import JobBenchAdapter
-from harness2.substrate.kimi import KimiSubstrate, make_home
+from harness2.core import tree as HT
+from harness2.substrate.kimi import KIMI_SURFACE, KimiSubstrate, hooks_toml, make_home
 
 # A kimi 2.4.1 `-p --output-format stream-json` capture, trimmed from a real run.
 STREAM = [
@@ -122,7 +123,9 @@ HOOKS = {
 def _tree(d: Path) -> Path:
     files = {
         "AGENTS.md": "Follow the task.\n",
-        ".agents/skills/xlsx/SKILL.md": "---\ndescription: read spreadsheets\n---\nUse pandas.\n",
+        ".agents/skills/xlsx/SKILL.md": (
+            "---\nname: xlsx\ndescription: read spreadsheets\n---\nUse pandas.\n"
+        ),
         "scripts/guard.py": "print('ok')\n",
         "sub_agents/reviewer/AGENT.md": "---\ndescription: reviews\n---\nReview it.\n",
         ".kimi/hooks.json": json.dumps(HOOKS),
@@ -172,6 +175,22 @@ class KimiMaterialiseTests(unittest.TestCase):
             ],
         )
 
+    def test_skill_without_name_is_rejected_because_kimi_fails_to_parse_it(self):
+        tree = {
+            "AGENTS.md": "When reading spreadsheets, read .agents/skills/xlsx/SKILL.md.\n",
+            ".agents/skills/xlsx/SKILL.md": "---\ndescription: read spreadsheets\n---\nBody.\n",
+        }
+        with self.assertRaisesRegex(ValueError, "name: xlsx"):
+            HT.validate(KIMI_SURFACE, tree)
+
+    def test_non_numeric_hook_timeout_falls_back_to_kimis_default(self):
+        src = json.dumps(
+            {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "x", "timeout": "5s"}]}]}}
+        )
+        self.assertEqual(
+            tomllib.loads(hooks_toml(src))["hooks"], [{"event": "Stop", "command": "x"}]
+        )
+
     def test_rejects_other_install_modes(self):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaises(ValueError):
@@ -198,6 +217,10 @@ command = "/home/me/htb-archive end"
 
 [thinking]
 effort = "high"
+
+[[ hooks ]]  # spaced header, trailing comment
+event = "Stop"
+command = "/home/me/notify"
 """
 
 
@@ -225,6 +248,7 @@ class KimiHomeTests(unittest.TestCase):
             home = make_home(_base_home(Path(d)), "", Path(d) / "rollout")
             cfg = tomllib.loads((home / "config.toml").read_text(encoding="utf-8"))
         self.assertNotIn("hooks", cfg)
+        self.assertEqual(cfg["thinking"], {"effort": "high"})
 
     def test_shares_oauth_credentials_with_the_base_home(self):
         with tempfile.TemporaryDirectory() as d:

@@ -43,7 +43,7 @@ KIMI_SURFACE = SurfaceSpec(
     always_on_max=8_000,
     always_on_cap_reason="AGENTS.md is injected whole into the system prompt of EVERY turn",
     skill_dir=".agents/skills",
-    skill_name_rule="overrides_dir",
+    skill_name_rule="must_match",
     trigger_hint=(
         'Fix it by adding a trigger line naming `{name}` to AGENTS.md, e.g. "When '
         "<the situation this skill handles>, read .agents/skills/{name}/SKILL.md "
@@ -97,8 +97,9 @@ KIMI_SURFACE = SurfaceSpec(
         (
             ".agents/skills/README.md",
             "<!-- c6: reusable workflows. Add one as .agents/skills/<name>/SKILL.md with YAML "
-            "frontmatter: `description:` is REQUIRED. Only name+description are advertised "
-            "to the agent; the body is read on demand. -->\n",
+            "frontmatter: `name: <name>` (matching the directory) and `description:` are both "
+            "REQUIRED, or kimi fails to parse it. Only name+description are advertised to the "
+            "agent; the body is read on demand. -->\n",
         ),
     ),
 )
@@ -131,7 +132,7 @@ def hooks_toml(src: str) -> str:
                 if matcher and matcher != "*":
                     rows.append(f"matcher = {_toml_str(matcher)}")
                 rows.append(f"command = {_toml_str(h['command'])}")
-                if h.get("timeout") is not None:
+                if isinstance(h.get("timeout"), (int, float)):
                     lo, hi = _HOOK_TIMEOUT_RANGE
                     rows.append(f"timeout = {min(hi, max(lo, int(h['timeout'])))}")
                 out.append("[[hooks]]\n" + "\n".join(rows) + "\n")
@@ -142,6 +143,7 @@ def hooks_toml(src: str) -> str:
 # `kimi` reads it; everything else (sessions, logs, config) stays per rollout.
 _SHARED_HOME_ENTRIES = ("credentials", "oauth", "bin", "device_id", "region")
 _TABLE_HEADER = re.compile(r"^\s*\[")
+_HOOKS_HEADER = re.compile(r"^\s*\[\[\s*hooks\s*\]\]\s*(#.*)?$")
 
 
 def strip_hooks(config_text: str) -> str:
@@ -150,7 +152,7 @@ def strip_hooks(config_text: str) -> str:
     out, in_hooks = [], False
     for ln in config_text.splitlines(keepends=True):
         if _TABLE_HEADER.match(ln):
-            in_hooks = ln.strip() == "[[hooks]]"
+            in_hooks = bool(_HOOKS_HEADER.match(ln))
         if not in_hooks:
             out.append(ln)
     return "".join(out)
@@ -220,14 +222,6 @@ class KimiSubstrate:
                 **{k: v for k, v in ctx.items() if not k.startswith("file:")},
             },
         )
-
-    def exec_argv(self, prompt: str, model: str = "") -> list[str]:
-        """`kimi -p`: non-interactive, auto-approved, one JSON message per line on stdout.
-
-        The workspace is the process cwd. `-p` refuses --yolo/--auto, and needs neither.
-        """
-        argv = [config.KIMI_BIN, "-p", prompt, "--output-format", "stream-json"]
-        return argv + (["-m", model] if model else [])
 
     def exec_env(self, base_env: Mapping[str, str], *, kimi_home: Path) -> dict[str, str]:
         """The `kimi -p` environment: a per-rollout data root, and HOME next to it."""

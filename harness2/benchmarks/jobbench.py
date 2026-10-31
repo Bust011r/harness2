@@ -500,6 +500,8 @@ _INSTALL_MODE = {"oc": "workspace_agents_md", "cx": "codex_root", "ki": "kimi_ro
 
 _DEFAULT_TIMEOUT = {"oc": 2400, "cx": 3600, "ki": 3600}
 
+_KI_ATTEMPTS = 2
+
 
 def _channels() -> dict:
     """Improver channel, resolved through core.spec.resolve_channel_model."""
@@ -847,10 +849,10 @@ class JobBenchAdapter:
                     "HARNESS_RENDER_DIR": str(install.staging_dir),
                     "TASKS_BASE_DIR": str(self.store),
                     "TIMEOUT_PER_TASK": str(t),
-                    "MAX_RETRIES": "2",
+                    "MAX_RETRIES": str(_KI_ATTEMPTS),
                 }
             )
-            self._run_runner(KI_RUNNER, env, wall=2 * t + 600, label=label)
+            self._run_runner(KI_RUNNER, env, wall=_KI_ATTEMPTS * t + 600, label=label)
         finally:
             shutil.rmtree(root, ignore_errors=True)
         return [self._require_artifacts(task_id, label)]
