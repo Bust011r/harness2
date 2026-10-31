@@ -43,6 +43,8 @@ MAX_CONCURRENCY = int(config.PROPOSER_CONCURRENCY)
 _SEM = threading.BoundedSemaphore(MAX_CONCURRENCY) if MAX_CONCURRENCY > 0 else None
 
 
+# Stripped for the claude_cli channel only, so Claude Code bills Vertex rather than an
+# API key; the opencode channel needs them for an `anthropic/...` model.
 _DROP_ENV = (
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
@@ -103,8 +105,9 @@ class Proposer:
             raise ValueError("Set HARNESS2_IMPROVER_MODEL before starting model sessions")
 
     def env(self) -> dict[str, str]:
-        e = {k: v for k, v in os.environ.items() if k not in _DROP_ENV}
+        e = dict(os.environ)
         if self.spec.kind == "claude_cli":
+            e = {k: v for k, v in e.items() if k not in _DROP_ENV}
             e.update(
                 {
                     "CLAUDE_CODE_USE_VERTEX": "1",
